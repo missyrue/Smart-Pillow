@@ -1,19 +1,8 @@
 /*
  * ============================================================
- *  MPCA PROJECT — BioSync Smart Pillow
- *  Board  : ESP32 DevKit V1  (Arduino Core 3.x)
- *  Author : PES2UG24CS013 & Team
- * ============================================================
- *  PIN MAP
- *  FSR Left         → GPIO 35  (Analog)
- *  FSR Middle       → GPIO 32  (Analog)
- *  FSR Right        → GPIO 34  (Analog)
- *  DHT22            → GPIO 27  (Digital)
- *  Vibration Motor  → GPIO 25  (PWM)
- *  Touch Sensor     → GPIO 14  (Digital)
- * ============================================================
- *  LIBRARY NEEDED:
- *    DHT sensor library — Adafruit  (+ Adafruit Unified Sensor)
+ * MPCA PROJECT — BioSync Smart Pillow
+ * Board  : ESP32 DevKit V1  (Arduino Core 3.x)
+ * Author : PES2UG24CS013 & Team
  * ============================================================
  */
 
@@ -32,7 +21,7 @@
 // ─── THRESHOLDS & TIMING ─────────────────────────────────────
 #define FSR_PRESSURE_THRESHOLD   500
 #define FSR_POSTURE_THRESHOLD    800
-#define FSR_MID_MIN              300
+#define FSR_MID_MIN               300
 #define BAD_POSTURE_LIMIT_MS   5000UL
 #define SNOOZE_DURATION_MS    10000UL
 #define ALARM_DELAY_MS        15000UL
@@ -51,16 +40,20 @@ SystemState currentState = HIBERNATE;
 
 // ─── GLOBALS ─────────────────────────────────────────────────
 unsigned long badPostureStart = 0;
-unsigned long snoozeStart     = 0;
-unsigned long alarmScheduled  = 0;
-unsigned long lastPrint       = 0;
-unsigned long wakeTime        = 0;
-int           vibIntensity    = 0;
-bool          alarmActive     = false;
-int           tapCount        = 0;
-unsigned long lastTapTime     = 0;
-bool          touchWasHigh    = false;
+unsigned long snoozeStart      = 0;
+unsigned long alarmScheduled   = 0;
+unsigned long lastPrint        = 0;
+unsigned long wakeTime         = 0;
+int           vibIntensity     = 0;
+bool          alarmActive      = false;
+int           tapCount         = 0;
+unsigned long lastTapTime      = 0;
+bool          touchWasHigh     = false;
 
+// ─── LOGGING GLOBALS ─────────────────────────────────────────
+float         avgTemperature   = 0;
+float         avgHumidity      = 0;
+int           sampleCount      = 0;
 
 // ─────────────────────────────────────────────────────────────
 //  setVibration — set motor PWM (0 to 255)
@@ -70,7 +63,6 @@ void setVibration(int val) {
   ledcWrite(VIB_PIN, val);
 }
 
-
 // ─────────────────────────────────────────────────────────────
 //  evaluatePosture — true = bad posture
 // ─────────────────────────────────────────────────────────────
@@ -79,7 +71,6 @@ bool evaluatePosture(int l, int m, int r) {
   if (r > FSR_POSTURE_THRESHOLD && m < FSR_MID_MIN) return true;
   return false;
 }
-
 
 // ─────────────────────────────────────────────────────────────
 //  handleTouch — 1 tap=snooze, 2=dismiss, 3=alarm
@@ -121,7 +112,6 @@ void handleTouch(unsigned long now) {
   }
 }
 
-
 // ─────────────────────────────────────────────────────────────
 //  printStatus — serial output every 2s
 // ─────────────────────────────────────────────────────────────
@@ -133,8 +123,12 @@ void printStatus(int l, int m, int r) {
   Serial.print("[STATUS]  ");
   Serial.printf("L:%-4d M:%-4d R:%-4d", l, m, r);
 
-  if (!isnan(temp)) {
+  if (!isnan(temp) && !isnan(hum)) {
     Serial.printf(" | %.1fC  %.0f%%", temp, hum);
+    // Update Running Averages
+    avgTemperature = ((avgTemperature * sampleCount) + temp) / (sampleCount + 1);
+    avgHumidity = ((avgHumidity * sampleCount) + hum) / (sampleCount + 1);
+    sampleCount++;
   } else {
     Serial.print(" | DHT:--");
   }
@@ -142,25 +136,33 @@ void printStatus(int l, int m, int r) {
   Serial.printf(" | %s\n", stateStr[currentState]);
 }
 
-
 // ─────────────────────────────────────────────────────────────
 //  logSessionSummary — printed when head is removed
 // ─────────────────────────────────────────────────────────────
 void logSessionSummary(unsigned long now) {
   unsigned long secs = (now - wakeTime) / 1000;
-  float temp = dht.readTemperature();
 
   Serial.println("\n============================================");
   Serial.println("             SESSION SUMMARY");
   Serial.println("============================================");
   Serial.printf("  Duration    : %lu min %lu sec\n", secs / 60, secs % 60);
-  if (!isnan(temp)) {
-    Serial.printf("  Temperature : %.1fC  (%s)\n",
-      temp, temp > 30.0 ? "Warm" : "Comfortable");
+  
+  if (sampleCount > 0) {
+    Serial.printf("  Temperature : %.1fC  (%s)\n", 
+      avgTemperature, avgTemperature > 30.0 ? "Warm" : "Comfortable");
+    Serial.printf("  Humidity    : %.1f%% (%s)\n", 
+      avgHumidity, avgHumidity > 70.0 ? "Humid/Sweat Detected" : "Normal");
+  } else {
+    Serial.println("  No DHT data collected during session.");
   }
+  
   Serial.println("============================================\n");
+  
+  // Reset session averages for the next user
+  avgTemperature = 0;
+  avgHumidity = 0;
+  sampleCount = 0;
 }
-
 
 // ─────────────────────────────────────────────────────────────
 //  SETUP
@@ -180,7 +182,6 @@ void setup() {
   Serial.println("============================================");
   Serial.println("[SYSTEM]  Ready. Waiting for head pressure...");
 }
-
 
 // ─────────────────────────────────────────────────────────────
 //  LOOP
@@ -242,10 +243,13 @@ void loop() {
       break;
 
     case VIBRATING:
+      // Keep the motor running
+      setVibration(vibIntensity); 
+
       if (!evaluatePosture(fsrL, fsrM, fsrR) && !alarmActive) {
         Serial.println("[VIBRATE] Posture fixed - off.");
         setVibration(0);
-        vibIntensity    = 0;
+        vibIntensity     = 0;
         badPostureStart = 0;
         currentState    = MONITORING;
       }
@@ -253,11 +257,15 @@ void loop() {
 
     case SNOOZED:
       if (now - snoozeStart >= SNOOZE_DURATION_MS) {
-        Serial.println("[SNOOZE] Finished. System re-armed.");
-        badPostureStart = 0;
-        alarmActive = false;
+        Serial.println("[SNOOZE] Over - Re-arming system...");
         
-        currentState    = MONITORING;
+        // If we were snoozing an alarm, make it fire again NOW
+        if (alarmActive) {
+          alarmScheduled = now; // Trigger immediately
+        }
+        
+        badPostureStart = 0; // Reset posture timer so it can re-detect
+        currentState = MONITORING;
       }
       break;
   }
