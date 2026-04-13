@@ -2,7 +2,7 @@
 
 ## Description
 
-This project implements a smart sleep monitoring system designed to enhance sleep quality through real-time monitoring and feedback. Utilizing FSR sensors for pressure detection, MPU6050 for movement tracking, and temperature sensors, the system provides intelligent alerts and sleep quality assessments.
+This project implements a smart sleep monitoring system designed to enhance sleep quality through real-time monitoring and feedback. Utilizing FSR sensors for pressure detection and temperature sensors, the system provides intelligent alerts and sleep quality assessments.
 
 ## Features
 
@@ -12,34 +12,35 @@ This project implements a smart sleep monitoring system designed to enhance slee
 - **Sleep Quality Monitoring**: Assesses sleep quality based on movement patterns and temperature readings.
 - **User Interaction**: Allows users to snooze vibration for 10 seconds with a single click or dismiss it entirely with a double click.
 - **Data Logging**: Logs sleep data when active, providing insights into sleep patterns.
-- **Fallback Handling**: Includes optional code for scenarios where MPU6050 is not detected.
+- **Fallback Handling**: Includes robust handling for sensor availability.
 
 ## Hardware Components
 
 - FSR Sensors (Force Sensitive Resistors)
-- MPU6050 IMU (Inertial Measurement Unit) for movement detection
 - Temperature Sensor
+- Touch Sensor / Button for user input
 - Vibration Motor for haptic feedback
 - D35 Development Kit for processing and control
 
 ## Connection Details
 
-- **MPU6050**
-  - VCC to 3.3V on the ESP32 / D35 board.
-  - GND to GND.
-  - SCL to the I2C clock pin (example TX0/D23 or designated SCL pin on D35).
-  - SDA to the I2C data pin (example RX0/D22 or designated SDA pin on D35).
-  - ADO and INT can remain unconnected unless using interrupt or alternate I2C address features.
-
 - **FSR Sensor**
+![alt text](image-5.png)
   - One lead to 5V or 3.3V depending on the board and sensor design.
   - Other lead through a pull-down resistor to GND.
   - Sense line to an analog input pin on the ESP32 / D35 board.
 
 - **Temperature Sensor (DHT11 / similar)**
+![alt text](image-4.png)
   - VCC to 3.3V.
   - GND to GND.
   - Data pin to GPIO26 on the ESP32 / D35 board (as shown in the wiring diagram).
+
+- **Touch Sensor / Button**
+  - Connect the sensor or button signal pin to the designated GPIO input pin on the D35 board.
+  - Use a pull-down resistor or configure the input pin with internal pull-down if available.
+  - Ensure the sensor share a common ground with the D35 board.
+  - Single press activates snooze; double press dismisses vibration alerts.
 
 - **Vibration Motor**
   - Powered from the board's output pin with a suitable transistor or driver.
@@ -78,7 +79,6 @@ The system operates as follows:
 
 - D35 Development Kit
 - FSR Sensors
-- MPU6050 Module
 - Temperature Sensor
 - Vibration Motor
 - Power Supply

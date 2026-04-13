@@ -2,7 +2,9 @@
  * ============================================================
  * MPCA PROJECT — BioSync Smart Pillow
  * Board  : ESP32 DevKit V1  (Arduino Core 3.x)
- * Author : PES2UG24CS013 & Team
+ * Author 1: PES2UG24CS013 AARUNI CHOUDHARY
+ * Author 2: PES2UG24CS032 ADITYA KUMAR
+ * Author 3: PES2UG24CS034 ADITYA RAO
  * ============================================================
  */
 
@@ -21,11 +23,12 @@
 // ─── THRESHOLDS & TIMING ─────────────────────────────────────
 #define FSR_PRESSURE_THRESHOLD   500
 #define FSR_POSTURE_THRESHOLD    800
-#define FSR_MID_MIN               300
+#define FSR_MID_MIN              300
 #define BAD_POSTURE_LIMIT_MS   5000UL
-#define SNOOZE_DURATION_MS    10000UL
+#define SNOOZE_DURATION_MS     5000UL   // ← CHANGED: was 10000UL
 #define ALARM_DELAY_MS        15000UL
 #define TAP_WINDOW_MS           600UL
+#define NO_HEAD_TIMEOUT_MS     3000UL   // ← NEW: 3s gap before session ends
 
 // ─── PWM (ESP32 Arduino Core 3.x) ────────────────────────────
 #define VIB_PWM_FREQ       1000
@@ -44,6 +47,7 @@ unsigned long snoozeStart      = 0;
 unsigned long alarmScheduled   = 0;
 unsigned long lastPrint        = 0;
 unsigned long wakeTime         = 0;
+unsigned long noHeadStart      = 0;   // ← NEW
 int           vibIntensity     = 0;
 bool          alarmActive      = false;
 int           tapCount         = 0;
@@ -64,11 +68,13 @@ void setVibration(int val) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  evaluatePosture — true = bad posture
+//  evaluatePosture — true = bad posture (snoring risk)
+//  FIXED: vibrate when head is centred/back (middle FSR high)
+//  Sleeping on sides (L or R high, M low) = good posture
 // ─────────────────────────────────────────────────────────────
 bool evaluatePosture(int l, int m, int r) {
-  if (l > FSR_POSTURE_THRESHOLD && m < FSR_MID_MIN) return true;
-  if (r > FSR_POSTURE_THRESHOLD && m < FSR_MID_MIN) return true;
+  // Bad posture: weight centred on middle sensor (back sleeping → snoring)
+  if (m > FSR_POSTURE_THRESHOLD) return true;   // ← CHANGED
   return false;
 }
 
@@ -91,7 +97,7 @@ void handleTouch(unsigned long now) {
         setVibration(0);
         snoozeStart  = now;
         currentState = SNOOZED;
-        Serial.println("[TOUCH]   1 tap - Snoozed 10s.");
+        Serial.println("[TOUCH]   1 tap - Snoozed 5s.");   // ← updated message
         break;
       case 2:
         setVibration(0);
@@ -125,9 +131,8 @@ void printStatus(int l, int m, int r) {
 
   if (!isnan(temp) && !isnan(hum)) {
     Serial.printf(" | %.1fC  %.0f%%", temp, hum);
-    // Update Running Averages
     avgTemperature = ((avgTemperature * sampleCount) + temp) / (sampleCount + 1);
-    avgHumidity = ((avgHumidity * sampleCount) + hum) / (sampleCount + 1);
+    avgHumidity    = ((avgHumidity    * sampleCount) + hum)  / (sampleCount + 1);
     sampleCount++;
   } else {
     Serial.print(" | DHT:--");
@@ -146,22 +151,21 @@ void logSessionSummary(unsigned long now) {
   Serial.println("             SESSION SUMMARY");
   Serial.println("============================================");
   Serial.printf("  Duration    : %lu min %lu sec\n", secs / 60, secs % 60);
-  
+
   if (sampleCount > 0) {
-    Serial.printf("  Temperature : %.1fC  (%s)\n", 
+    Serial.printf("  Temperature : %.1fC  (%s)\n",
       avgTemperature, avgTemperature > 30.0 ? "Warm" : "Comfortable");
-    Serial.printf("  Humidity    : %.1f%% (%s)\n", 
+    Serial.printf("  Humidity    : %.1f%% (%s)\n",
       avgHumidity, avgHumidity > 70.0 ? "Humid/Sweat Detected" : "Normal");
   } else {
     Serial.println("  No DHT data collected during session.");
   }
-  
+
   Serial.println("============================================\n");
-  
-  // Reset session averages for the next user
+
   avgTemperature = 0;
-  avgHumidity = 0;
-  sampleCount = 0;
+  avgHumidity    = 0;
+  sampleCount    = 0;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -203,6 +207,7 @@ void loop() {
     case HIBERNATE:
       if (headDetected) {
         wakeTime     = now;
+        noHeadStart  = 0;          // ← reset gap timer on new session
         currentState = MONITORING;
         Serial.println("[WAKE]    Head detected - monitoring started.");
       }
@@ -210,16 +215,30 @@ void loop() {
 
     case MONITORING:
       if (!headDetected) {
-        logSessionSummary(now);
-        setVibration(0);
-        badPostureStart = 0;
-        currentState    = HIBERNATE;
-        break;
+        // ── NEW: start/check 3-second gap before ending session ──
+        if (noHeadStart == 0) {
+          noHeadStart = now;
+          Serial.println("[HEAD]    No pressure - waiting 3s to confirm...");
+        } else if (now - noHeadStart >= NO_HEAD_TIMEOUT_MS) {
+          logSessionSummary(now);
+          setVibration(0);
+          badPostureStart = 0;
+          noHeadStart     = 0;
+          currentState    = HIBERNATE;
+        }
+        break;   // don't run posture/alarm checks while head is absent
+      } else {
+        // Head is present — reset the gap timer
+        if (noHeadStart != 0) {
+          Serial.println("[HEAD]    Pressure restored - continuing session.");
+          noHeadStart = 0;
+        }
       }
+
       if (evaluatePosture(fsrL, fsrM, fsrR)) {
         if (badPostureStart == 0) {
           badPostureStart = now;
-          Serial.println("[POSTURE] Bad posture - timer started.");
+          Serial.println("[POSTURE] Back/centre sleeping detected - timer started.");
         }
         if (now - badPostureStart >= BAD_POSTURE_LIMIT_MS) {
           Serial.println("[POSTURE] Limit reached - vibrating!");
@@ -228,10 +247,11 @@ void loop() {
           currentState = VIBRATING;
         }
       } else {
-        if (badPostureStart != 0) Serial.println("[POSTURE] Corrected.");
+        if (badPostureStart != 0) Serial.println("[POSTURE] Side sleeping - OK.");
         badPostureStart = 0;
         setVibration(0);
       }
+
       if (alarmScheduled > 0 && now >= alarmScheduled) {
         Serial.println("[ALARM]   Firing!");
         alarmActive    = true;
@@ -243,13 +263,12 @@ void loop() {
       break;
 
     case VIBRATING:
-      // Keep the motor running
-      setVibration(vibIntensity); 
+      setVibration(vibIntensity);
 
       if (!evaluatePosture(fsrL, fsrM, fsrR) && !alarmActive) {
-        Serial.println("[VIBRATE] Posture fixed - off.");
+        Serial.println("[VIBRATE] Posture fixed (side sleeping) - off.");
         setVibration(0);
-        vibIntensity     = 0;
+        vibIntensity    = 0;
         badPostureStart = 0;
         currentState    = MONITORING;
       }
@@ -258,14 +277,13 @@ void loop() {
     case SNOOZED:
       if (now - snoozeStart >= SNOOZE_DURATION_MS) {
         Serial.println("[SNOOZE] Over - Re-arming system...");
-        
-        // If we were snoozing an alarm, make it fire again NOW
+
         if (alarmActive) {
-          alarmScheduled = now; // Trigger immediately
+          alarmScheduled = now;   // re-fire alarm immediately
         }
-        
-        badPostureStart = 0; // Reset posture timer so it can re-detect
-        currentState = MONITORING;
+
+        badPostureStart = 0;
+        currentState    = MONITORING;
       }
       break;
   }
