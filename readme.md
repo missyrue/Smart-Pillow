@@ -1,4 +1,4 @@
-# : Smart Sleep Monitor
+# Smart Sleep Monitor
 
 ## Description
 
