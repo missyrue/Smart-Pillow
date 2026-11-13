@@ -1,0 +1,2 @@
+pyserial>=3.5
+# Optional, for session charts: matplotlib>=3.8

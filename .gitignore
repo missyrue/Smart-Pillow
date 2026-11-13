@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+data/raw/*.csv
+reports/session_analysis.md
+reports/plots/
+secrets.h

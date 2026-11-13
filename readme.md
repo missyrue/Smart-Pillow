@@ -1,99 +1,63 @@
-# Smart Sleep Monitor
+# BioSync Smart Pillow
 
-## Description
+## Project title
 
-This project implements a smart sleep monitoring system designed to enhance sleep quality through real-time monitoring and feedback. Utilizing FSR sensors for pressure detection and temperature sensors, the system provides intelligent alerts and sleep quality assessments.
+**IoT Smart Pillow for Sleep Posture Patterns and Local Sleep-Environment Analysis**
 
-## Features
+The ESP32 reads three pillow-zone FSRs and nearby temperature/humidity from a DHT22. It classifies pressure distribution, detects pillow-use sessions, and pulses the vibration motor after sustained center-dominant pressure. Sensor data is sent to ThingSpeak for cloud storage, live charts, and MATLAB analysis. This is an educational prototype, not a medical device or sleep-quality diagnostic.
 
-- **Pressure Detection**: FSR sensors detect body pressure on the mattress, activating the system from hibernate mode to conserve power.
-- **Power Efficiency**: Enters hibernate mode when no pressure is detected, minimizing energy consumption.
-- **Vibration Alerts**: Triggers gradual vibration feedback if sleep conditions are suboptimal (e.g., high movement or temperature changes lasting over a minute).
-- **Sleep Quality Monitoring**: Assesses sleep quality based on movement patterns and temperature readings.
-- **User Interaction**: Allows users to snooze vibration for 10 seconds with a single click or dismiss it entirely with a double click.
-- **Data Logging**: Logs sleep data when active, providing insights into sleep patterns.
-- **Fallback Handling**: Includes robust handling for sensor availability.
+## Hardware and pin map
 
-## Hardware Components
+| Component | ESP32 connection | Purpose |
+|---|---:|---|
+| Left FSR signal | GPIO 35 | Left-side pressure |
+| Middle FSR signal | GPIO 32 | Center pressure |
+| Right FSR signal | GPIO 34 | Right-side pressure |
+| DHT22 data | GPIO 27 | Temperature and relative humidity |
+| Vibration driver input | GPIO 25 | PWM feedback pulses |
+| Touch input | GPIO 14 | User marker, alert snooze, or dismissal |
 
-- FSR Sensors (Force Sensitive Resistors)
-- Temperature Sensor
-- Touch Sensor / Button for user input
-- Vibration Motor for haptic feedback
-- D35 Development Kit for processing and control
+FSRs use their existing voltage-divider circuits. Keep ESP32 input signals within 3.3 V and connect sensor grounds to ESP32 GND. Drive the motor through its transistor/MOSFET driver or motor-driver module, with a supply suitable for the motor and a shared ground. Do not connect a bare motor directly to GPIO 25.
 
-## Connection Details
+## Complete IoT pipeline
 
-- **FSR Sensor**
-![alt text](image-5.png)
-  - One lead to 5V or 3.3V depending on the board and sensor design.
-  - Other lead through a pull-down resistor to GND.
-  - Sense line to an analog input pin on the ESP32 / D35 board.
+1. **Sense:** the FSRs, DHT22, and touch input collect pressure, local environment, and user interaction.
+2. **Ingest:** the ESP32 samples sensors and uploads readings over Wi-Fi/HTTPS to a private ThingSpeak channel. USB serial remains available for debugging.
+3. **Process:** firmware classifies pressure and sessions, and activates a pulsed motor alert after five seconds of sustained center-dominant pressure.
+4. **Store:** ThingSpeak stores each successful channel update in the cloud.
+5. **Analyze:** ThingSpeak's hosted MATLAB Analysis calculates posture-category share and changes, environmental averages, alert starts, and motor-on time. No Python analysis process runs on the PC in the cloud workflow.
 
-- **Temperature Sensor (DHT11 / similar)**
-![alt text](image-4.png)
-  - VCC to 3.3V.
-  - GND to GND.
-  - Data pin to GPIO26 on the ESP32 / D35 board (as shown in the wiring diagram).
+## Cloud setup and use
 
-- **Touch Sensor / Button**
-  - Connect the sensor or button signal pin to the designated GPIO input pin on the D35 board.
-  - Use a pull-down resistor or configure the input pin with internal pull-down if available.
-  - Ensure the sensor share a common ground with the D35 board.
-  - Single press activates snooze; double press dismisses vibration alerts.
+Follow [cloud/ThingSpeak/README.md](cloud/ThingSpeak/README.md) to create the private channel, add Wi-Fi and ThingSpeak credentials locally, install Arduino libraries, upload the cloud sketch, open the field charts, and run the MATLAB Analysis code. The analysis file is [cloud/ThingSpeak/MATLAB_Analysis.m](cloud/ThingSpeak/MATLAB_Analysis.m).
 
-- **Vibration Motor**
-  - Powered from the board's output pin with a suitable transistor or driver.
-  - GND to common ground.
-  - Control signal to the assigned GPIO pin for haptic feedback.
+Use `BioSync_Cloud/BioSync_Cloud.ino` for cloud operation. Copy `BioSync_Cloud/secrets.h.example` to `BioSync_Cloud/secrets.h` and fill in your values; `secrets.h` is ignored by Git. The cloud sketch keeps the existing hardware pins. Channel writes occur every 16 seconds to meet ThingSpeak's free-tier write interval. Confirm a response code `200` in Serial Monitor at 115200 baud.
 
-- Use common ground for all sensors and actuators to ensure reliable signal reference.
+### Cloud channel fields
 
-## System Flow
+| Field | Value |
+|---:|---|
+| 1–3 | Left, middle, and right FSR ADC values |
+| 4–5 | Temperature (C) and relative humidity (%) |
+| 6 | Posture code: 0 none, 1 left, 2 center, 3 right, 4 distributed |
+| 7 | Alert code: 0 off, 1 active, 2 snoozed, 3 dismissed |
+| 8 | Cumulative motor-on seconds for the current firmware session |
 
-The system operates as follows:
-1. In hibernate mode when no pressure is detected.
-2. Activates upon pressure detection, converting pressure to voltage readings.
-3. Monitors for high changes in values (indicating restlessness) or stable values (good sleep).
-4. Triggers vibration if poor conditions persist.
-5. Provides options for user to interact with alerts.
-6. Logs sleep quality metrics based on movement and temperature.
+## Interpretation
 
-## Diagrams
+- Raw FSR readings depend on resistor values, sensor placement, and pillow compression. Categories are relative prototype labels, not calibrated force measurements.
+- Two-second device sampling can miss brief movement; the cloud dashboard receives a subset at the permitted channel upload rate.
+- Temperature and humidity describe the DHT22's local surroundings. Motor-on time records firmware commands; direct observation confirms physical motor operation.
+- Do not claim sleep-quality or health conclusions. Report actual cloud-collected values after running your own sessions.
 
-### Main System Diagram
-![Main System Diagram](mermaid-diagram.png)
+## Project files
 
-### Alternative System Diagram
-![Alternative System Diagram](mermaid-diagram%20(1).png)
+- `BioSync_Cloud/BioSync_Cloud.ino` — ESP32 cloud firmware
+- `BioSync_Cloud/secrets.h.example` — local credential template
+- `cloud/ThingSpeak/MATLAB_Analysis.m` — hosted cloud analysis script
+- `cloud/ThingSpeak/README.md` — ThingSpeak setup and operation
+- `tools/serial_logger.py` and `tools/analyze_sessions.py` — optional offline analysis of serial telemetry
+- `tools/serial_logger.py` and `tools/analyze_sessions.py` — optional offline workflow
+- `docs/project_report.md` — report and evaluation methodology
 
-## Usage Instructions
-
-1. Install the sensors on the mattress as per the hardware setup guide.
-2. Power on the D35 devkit.
-3. The system will automatically enter monitoring mode when pressure is detected.
-4. If vibration alerts occur, use the button to snooze (single press) or dismiss (double press).
-5. Review logged data for sleep quality insights.
-
-## Requirements
-
-- D35 Development Kit
-- FSR Sensors
-- Temperature Sensor
-- Vibration Motor
-- Power Supply
-
-## Installation
-
-1. Clone this repository.
-2. Set up the hardware connections as described in the hardware documentation.
-3. Upload the firmware to the D35 kit.
-4. Test the sensor readings and vibration functionality.
-
-## Contributing
-
-Contributions are welcome. Please fork the repository and submit a pull request.
-
-## License
-
-This project is licensed under the MIT License.
+The Python tools remain available for offline evaluation only; the primary deliverable pipeline stores and analyzes data in ThingSpeak.

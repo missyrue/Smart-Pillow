@@ -1,6 +1,6 @@
 /*
  * ============================================================
- * MPCA PROJECT — BioSync Smart Pillow
+ * BioSync IoT Project — BioSync Smart Pillow
  * Board  : ESP32 DevKit V1  (Arduino Core 3.x)
  * Author 1: PES2UG24CS013 AARUNI CHOUDHARY
  * Author 2: PES2UG24CS032 ADITYA KUMAR
@@ -182,7 +182,7 @@ void setup() {
   dht.begin();
 
   Serial.println("\n============================================");
-  Serial.println("   BioSync Smart Pillow - MPCA Project");
+  Serial.println("   BioSync Smart Pillow - BioSync IoT Project");
   Serial.println("============================================");
   Serial.println("[SYSTEM]  Ready. Waiting for head pressure...");
 }
